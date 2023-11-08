@@ -26,5 +26,6 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	class AATCPChatServer* ChatServer;
-
+	// 서버와 클라이언트들을 초기화 및 관리하기 위한 GameInstance.
+	// 그리고 액터로 만든 클래스들을 직접 객체로 만들어주어 레벨이 바뀌었을때 연결이 끊기지 않게 하기 위함.
 };

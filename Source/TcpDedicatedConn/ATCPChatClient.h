@@ -26,15 +26,20 @@ public:
 
 public:
 	UFUNCTION(BlueprintCallable)
-	bool ConnectToServer(const FString& ServerIP, const int32 ServerPort);	// 서버 연결
+	bool ConnectToServer(const FString& ServerIP, const int32 ServerPort);	// 서버에 연결을 시도하는 함수
 
 	UFUNCTION(BlueprintCallable)
-	void SendDataToServer(const FString& Data);	// 서버로 데이터 전송
+	void SendDataToServer(const FString& Data);	// 서버로 데이터를 전송하는 함수
 
 	UFUNCTION(BlueprintCallable)
-	FString ReceiveDataFromServer();	// 서버로부터 데이터 수신
+	FString ReceiveDataFromServer();	// 서버로부터 데이터를 수신하는 함수
+
+	UFUNCTION(BlueprintCallable, Category = "Chat")
+	void SendChatMessage(const FString& Message);
+	
+	FString ReceiveChatMessage();
 
 private:
-	FSocket* ConnectionSocket;
+	FSocket* ConnectionSocket;	// 서버와의 연결 소켓을 관리하는 변수.
 
 };

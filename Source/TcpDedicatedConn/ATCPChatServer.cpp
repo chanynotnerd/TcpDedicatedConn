@@ -16,6 +16,8 @@ AATCPChatServer::AATCPChatServer()
 void AATCPChatServer::BeginPlay()
 {
 	Super::BeginPlay();
+    // 게임 플레이가 되면 서버의 IP주소와 Port를 설정하고 StartTCPReceiver() 함수를 호출하여 TCP 서버 시작.
+
 
     // 서버에 IP주소와 포트 주소 설정.
     const FString ServerIP = TEXT("127.0.0.1"); 
@@ -44,8 +46,10 @@ bool AATCPChatServer::StartTCPReceiver(const FString& SocketName, const FString&
     if (bSuccess)
     {
         // FTimerHandle과 FTimerDelegate를 사용하여 TCPSocketListener()를 주기적으로 호출(SetTimer() 사용)
+        // 이로 인해 서버는 계속하여 클라이언트의 연결을 확인하고 처리할 수 있음.
         FTimerHandle TimerHandle;
         FTimerDelegate TimerDelegate;
+
         TimerDelegate.BindUFunction(this, FName("TCPSocketListener"));
         GetWorldTimerManager().SetTimer(TimerHandle, TimerDelegate, 0.01, true);
         return true;
@@ -56,11 +60,62 @@ bool AATCPChatServer::StartTCPReceiver(const FString& SocketName, const FString&
     }
 }
 
+// 클라이언트로부터 메세지를 보내는 함수 SendChatMessageToClient()
+void AATCPChatServer::SendChatMessageToClient(const FString& Message)
+{
+    // ConnectionSocket이 null값이 아닌지 확인. null이면 클라이언트와 연결되지 않은 상태임.
+    if (ConnectionSocket != nullptr)
+    {
+        FTCHARToUTF8 Convert(*Message); // FString을 UTF8로 변환. 이로 인해 바이트 배열로 변환 가능.
+        // 바이트 배열 생성 및 변환한 UTF8 문자열 추가.
+        TArray<uint8> SendBuffer;
+        SendBuffer.Append((uint8*)Convert.Get(), Convert.Length());
+        // Send() 사용하여 바꾼 바이트배열을 클라이언트에 뿌려줌.
+        int32 BytesSent;    // BytesSent 변수는 실제로 클라이언트한테 보낸 바이트 수를 저장.
+        ConnectionSocket->Send(SendBuffer.GetData(), SendBuffer.Num(), BytesSent);
+    }
+}
+
+
+// 클라이언트로부터 메세지를 받는 함수
+FString AATCPChatServer::ReceiveChatMessageFromClient()
+{
+    // 받은 메세지를 저장할 FString 변수 선언.
+    FString ReceivedMessage;
+
+    // 연결되었으면
+    if (ConnectionSocket != nullptr)
+    {
+        // ConnectionSocket에 대기중인 데이터가 있는지 확인. 있으면 받아서 ReceivedMessage에 저장.
+        uint32 Size;
+        while (ConnectionSocket->HasPendingData(Size))
+        {
+            // 바이트배열로 생성하여 ConnectionSocket에서 데이터를 읽어옴.
+            TArray<uint8> ReceiveBuffer;
+            ReceiveBuffer.SetNumUninitialized(FMath::Min(Size, 65507u));
+
+            // Recv() 호출하여 데이터를 읽음. Read 변수는 실제로 읽어들인 바이트 수를 저장.
+            int32 Read = 0;
+            ConnectionSocket->Recv(ReceiveBuffer.GetData(), ReceiveBuffer.Num(), Read);
+
+            // 바이트 배열을 UTF8로 변환 후 다시 FString으로 변환.
+            // 클라이언트로부터 받은 메세지를 FString 형태로 사용하기 위함.
+            ReceivedMessage = FString(UTF8_TO_TCHAR((char*)ReceiveBuffer.GetData()));
+        }
+    }
+
+    // 받은 메세지를 반환.
+    return ReceivedMessage;
+}
+
+
+
 // CreateTCPConnectionListener(), ListenerSocket 생성 및 설정.
 bool AATCPChatServer::CreateTCPConnectionListener(const FString& SocketName, const FString& IP, const int32 Port, const int32 ReceiveBufferSize)
 {
     // 소켓 주소 객체를 생성. Addr이라는 스마트 포인터로 관리하여 향후 소켓 생성 및 구성에 사용될 소켓 주소 객체를 만드는 것.
     TSharedRef<FInternetAddr> Addr = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM)->CreateInternetAddr();
+
     // TSharedRef는 언리얼의 스마트 포인터 종류. TSharedRef<FInternetAddr>를 사용해 주어진 IP, Port를 활용하여 TCP ListenerSocket의 주소 생성.
     // FInternetAddr은 네트워크 주소 정보 클래스이므로 주소 정보를 공유하고 관리하는 변수 addr을 선언. FInternetAddr 클래스에서 네트워크 바이트로 정렬해줌.
     // ISocketSubsystem은 다양한 플랫폼과 운영체제에 대해 소켓 인터페이스를 제공하여 이식성을 유지할 수 있기 위함. 이로 인해 다양한 환경에서 안정적인 네트워크 통신 지원
@@ -82,6 +137,7 @@ bool AATCPChatServer::CreateTCPConnectionListener(const FString& SocketName, con
 
 
     // FTcpSocketBuilder를 사용하여 ListenerSocket을 생성 및 설정.
+    // ListenerSocket은 클라이언트와의 연결을 대기하고 있음.
     ListenerSocket = FTcpSocketBuilder(*SocketName)
         .AsReusable()
         .BoundToEndpoint(Endpoint)
@@ -98,6 +154,8 @@ bool AATCPChatServer::CreateTCPConnectionListener(const FString& SocketName, con
 
 
 // 서버에서 클라이언트의 연결을 수신하고, 연결된 클라이언트의 정보를 로그에 남기는 함수.
+// ListenerSocket이 있는지 검사 후 클라이언트의 연결 요청이 있는지 확인.
+// 연결 대기 중이었던 데이터가 있으면 연결 수락 및 클라이언트 정보를 로그에 기록.
 void AATCPChatServer::TCPSocketListener()
 {
     if (!ListenerSocket)
@@ -112,7 +170,7 @@ void AATCPChatServer::TCPSocketListener()
     if (ListenerSocket->HasPendingData(PendingDataSize))    // HasPendingData()는 소켓에 대기중인 클라이언트의 연결 요청이 있는지 확인.
     {
         ConnectionSocket = ListenerSocket->Accept(TEXT("TCPChatServer"));
-        // Accept() 함수를 상요하여 클라이언트 연결  요청 수락 및 클라이언트와 통신할 소켓 생성, ConnectingSocket에 할당.
+        // Accept() 함수를 사용하여 클라이언트 연결  요청 수락 및 클라이언트와 통신할 소켓 생성, ConnectingSocket에 할당.
         if (ConnectionSocket)   // 할당되었으면
         {
             RemoteAddressString = RemoteAddress.ToString();
@@ -125,3 +183,6 @@ void AATCPChatServer::TCPSocketListener()
         }
     }
 }
+ 
+// 즉 ATCPChatServer 클래스는 클라이언트의 연결을 수신하고 처리하는 서버 역할을 수행한다.
+// 클라이언트와 서버 간 통신을 관리하고 새로운 클라이언트의 연결을 대기함.

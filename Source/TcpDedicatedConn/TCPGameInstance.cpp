@@ -10,11 +10,9 @@ UTCPGameInstance::UTCPGameInstance()
     ChatServer = nullptr;
 }
 
-
 void UTCPGameInstance::Init()
 {
     Super::Init();
-
 
     // 서버 IP 주소 및 포트 설정
     const FString ServerIP = TEXT("127.0.0.1");
